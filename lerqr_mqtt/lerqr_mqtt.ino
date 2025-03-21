@@ -326,7 +326,7 @@ void enviar_mensagem_mqtt(void * pvParameters){
     {
       Serial.println("Dados enviados");
       Serial.println(msg_rec);
-      client.publish("esp32/QRcode",  msg_rec);
+      client.publish("rastreio/esp32/camera1/localizacao",  msg_rec);
     }
     else
     {
