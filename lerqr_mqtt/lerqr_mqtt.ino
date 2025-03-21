@@ -269,8 +269,6 @@ void dumpData(const struct quirc_data *data)
   sprintf(msg, "%s", data->payload);
 
   if(memcmp(msg, msg_ant, sizeof(msg)) != 0){
-    //Copia para a variável o valor da nova mensagem para o buffer anterior para proxima comparação
-    memcpy(msg_ant, msg, sizeof(msg));
     //Sinal luminoso e sonoro
     sinal_envio();
     //Cria task de envio
@@ -327,6 +325,8 @@ void enviar_mensagem_mqtt(void * pvParameters){
       Serial.println("Dados enviados");
       Serial.println(msg_rec);
       client.publish("rastreio/esp32/camera1/localizacao",  msg_rec);
+      //Copia para a variável o valor da nova mensagem para o buffer anterior para proxima comparação
+      memcpy(msg_ant, msg, sizeof(msg));
     }
     else
     {
