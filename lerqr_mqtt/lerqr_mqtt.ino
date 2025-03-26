@@ -49,10 +49,11 @@ TaskHandle_t flash_Task;
 
 /* ======================================== */ // Definindo Pinos do LED do flash e do Buzzer
 #define LED_OnBoard 4
-#define Buzzer 14
-#define SDA_PIN 13 // SDA Connected to GPIO 14
-#define SCL_PIN 15 // SCL Connected to GPIO 15
 #define LED_err 12
+#define Buzzer 14
+#define SDA_PIN 15 // SDA Connected to GPIO 14
+#define SCL_PIN 13 // SCL Connected to GPIO 15
+
 /* ======================================== Replace with your network credentials */
 const char* ssid = "Automacao";
 const char* password = "127.0.0.1...";
@@ -388,7 +389,12 @@ void Flash ( void * pvParameters ) {
       if (estado == 1 && estadoanterior == 0){
         digitalWrite(LED_OnBoard, HIGH);
         }
+      } else {
+        digitalWrite(LED_OnBoard, LOW);
       }
+    if (!estado){
+      digitalWrite(LED_OnBoard, LOW);
+    }
     estadoanterior = estado;
     vTaskDelay(10 / portTICK_PERIOD_MS);
   }
