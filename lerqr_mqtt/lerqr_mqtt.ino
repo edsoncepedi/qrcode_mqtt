@@ -17,14 +17,16 @@
 #include <WiFi.h>
 #include <Arduino.h>
 #include <cstring>
-
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include "Adafruit_VL53L0X.h"
 /* ======================================== */
 
 // creating a task handle
 TaskHandle_t QRCodeReader_Task; 
 TaskHandle_t reconnect_Task; 
 TaskHandle_t envio_Task; 
-
+TaskHandle_t flash_Task;
 /* ======================================== GPIO of camera model Al Thinker ESP32-CAM */
 
 #define PWDN_GPIO_NUM     32
@@ -48,7 +50,9 @@ TaskHandle_t envio_Task;
 /* ======================================== */ // Definindo Pinos do LED do flash e do Buzzer
 #define LED_OnBoard 4
 #define Buzzer 14
-
+#define SDA_PIN 13 // SDA Connected to GPIO 14
+#define SCL_PIN 15 // SCL Connected to GPIO 15
+#define LED_err 12
 /* ======================================== Replace with your network credentials */
 const char* ssid = "Automacao";
 const char* password = "127.0.0.1...";
@@ -83,18 +87,29 @@ struct QRCodeData qrCodeData;
 
 /* ======================================== */
 
+// VL53L0X (Using I2C) - SENSOR
+Adafruit_VL53L0X lox = Adafruit_VL53L0X();
+
 /* ________________________________________________________________________________ VOID SETTUP() */
 void setup() {
   // put your setup code here, to run once:
   pinMode(LED_OnBoard, OUTPUT);
   pinMode(Buzzer, OUTPUT);
+  pinMode(LED_err, OUTPUT);
+  digitalWrite(LED_err, LOW);
+
+  Wire.begin(SDA_PIN, SCL_PIN);
+
   // Disable brownout detector.
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+ 
 
   /* ---------------------------------------- Init serial communication speed (baud rate). */
   Serial.begin(115200);
   Serial.setDebugOutput(true);
   Serial.println();
+  /* ---------------------------------------- */
+
   /* ---------------------------------------- */
   client.setServer(mqtt_server, 1883);   // Configura o broker MQTT (porta 1883)
   //client.setCallback(callback);           // Define a função de callback para tratar mensagens recebidas
@@ -159,6 +174,15 @@ void setup() {
       ESP.restart();
     }
   }
+
+  /* ---------------------------------------- Inicializa a comunicação I2C do Sensor*/
+  Serial.println("Adafruit VL53L0X test");
+  if (!lox.begin()) {
+    Serial.println(F("Failed to boot VL53L0X"));
+    while (1)
+      ;
+  }
+  Serial.println(F("VL53L0X API Simple Ranging example\n\n"));
   /* ---------------------------------------- create "QRCodeReader_Task" using the xTaskCreatePinnedToCore() function */
   xTaskCreatePinnedToCore(
              QRCodeReader,          /* Task function. */
@@ -172,13 +196,26 @@ void setup() {
   xTaskCreatePinnedToCore(
              reconnect_mqtt,          /* Task function. */
              "reconnect_mqtt",   /* name of task. */
-             10000,                 /* Stack size of task */
+             2048,                 /* Stack size of task */
              NULL,                  /* parameter of the task */
              2,                     /* priority of the task */
              &reconnect_Task,    /* Task handle to keep track of created task */
              1);                    /* pin task to core 1 */
   /* ---------------------------------------- */
+    /* ---------------------------------------- */
+
+  xTaskCreatePinnedToCore(
+             Flash,          /* Task function. */
+             "Flash",   /* name of task. */
+             2048,                 /* Stack size of task */
+             NULL,                  /* parameter of the task */
+             2,                     /* priority of the task */
+             &flash_Task,    /* Task handle to keep track of created task */
+             0);                    /* pin task to core 1 */
+  /* ---------------------------------------- */ 
+
 }
+
 /* ________________________________________________________________________________ */
 void loop() {
   // put your main code here, to run repeatedly:
@@ -223,8 +260,10 @@ void QRCodeReader( void * pvParameters ){
     
         if (err){
           Serial.println("Decoding FAILED");
+          //digitalWrite(LED_OnBoard, HIGH);
         } else {
           Serial.printf("Decoding successful:\n");
+          //digitalWrite(LED_OnBoard, LOW);
           dumpData(&data);
         } 
         Serial.println();
@@ -311,10 +350,10 @@ void reconnect_mqtt ( void * pvParameters ) {
 }
 
 void sinal_envio(){
-    digitalWrite(LED_OnBoard, HIGH);
+    digitalWrite(LED_err, HIGH);
     digitalWrite(Buzzer, HIGH);
     vTaskDelay(50);
-    digitalWrite(LED_OnBoard, LOW);
+    digitalWrite(LED_err, LOW);
     digitalWrite(Buzzer, LOW);
 }
 
@@ -333,4 +372,28 @@ void enviar_mensagem_mqtt(void * pvParameters){
       Serial.println("Erro conexão");
     }
     vTaskDelete(NULL);
+}
+
+void Flash ( void * pvParameters ) {
+  // Tenta se reconectar até que a conexão seja bem-sucedida
+  while(1){
+    VL53L0X_RangingMeasurementData_t measure;
+    lox.rangingTest(&measure, false);
+    bool estado;
+    estado = measure.RangeMilliMeter < 250;
+    //lox.getRangingMeasurement(&measure, false);
+    if (measure.RangeStatus != 4) {
+      //Serial.print("Distance (mm): ");
+      //Serial.println(measure.RangeMilliMeter);
+      if (estado){
+        digitalWrite(LED_OnBoard, HIGH);
+      }else{
+        digitalWrite(LED_OnBoard, LOW);
+      }
+    } else {
+      //Serial.println(" out of range ");
+      digitalWrite(LED_OnBoard, LOW);
+    }
+    vTaskDelay(10 / portTICK_PERIOD_MS);
+  }
 }
