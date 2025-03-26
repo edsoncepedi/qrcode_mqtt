@@ -89,7 +89,7 @@ struct QRCodeData qrCodeData;
 
 // VL53L0X (Using I2C) - SENSOR
 Adafruit_VL53L0X lox = Adafruit_VL53L0X();
-
+bool estadoanterior;
 /* ________________________________________________________________________________ VOID SETTUP() */
 void setup() {
   // put your setup code here, to run once:
@@ -355,6 +355,7 @@ void sinal_envio(){
     vTaskDelay(50);
     digitalWrite(LED_err, LOW);
     digitalWrite(Buzzer, LOW);
+    digitalWrite(LED_OnBoard, LOW);
 }
 
 void enviar_mensagem_mqtt(void * pvParameters){
@@ -377,23 +378,18 @@ void enviar_mensagem_mqtt(void * pvParameters){
 void Flash ( void * pvParameters ) {
   // Tenta se reconectar até que a conexão seja bem-sucedida
   while(1){
-    VL53L0X_RangingMeasurementData_t measure;
-    lox.rangingTest(&measure, false);
     bool estado;
-    estado = measure.RangeMilliMeter < 250;
+    VL53L0X_RangingMeasurementData_t measure;
+    const int distancia = 250;
+    lox.rangingTest(&measure, false);
+    estado = measure.RangeMilliMeter < distancia;
     //lox.getRangingMeasurement(&measure, false);
     if (measure.RangeStatus != 4) {
-      //Serial.print("Distance (mm): ");
-      //Serial.println(measure.RangeMilliMeter);
-      if (estado){
+      if (estado == 1 && estadoanterior == 0){
         digitalWrite(LED_OnBoard, HIGH);
-      }else{
-        digitalWrite(LED_OnBoard, LOW);
+        }
       }
-    } else {
-      //Serial.println(" out of range ");
-      digitalWrite(LED_OnBoard, LOW);
-    }
+    estadoanterior = estado;
     vTaskDelay(10 / portTICK_PERIOD_MS);
   }
 }
