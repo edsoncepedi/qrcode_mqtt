@@ -60,7 +60,7 @@ const char* password = "127.0.0.1...";
 /* ======================================== */
 
 /*======================================== Definição do endereço IP do servidor MQTT*/
-const char* mqtt_server = "172.16.9.148";
+const char* mqtt_server = "172.16.10.175";
 
 WiFiClient espClient; // Cliente Wi-Fi para comunicação com o broker MQTT
 PubSubClient client(espClient); // Cliente MQTT usando o cliente Wi-Fi
@@ -333,7 +333,7 @@ void reconnect_mqtt ( void * pvParameters ) {
     {
       Serial.print("Attempting MQTT connection...");
       // Tenta conectar com o ID "ESP8266Client"
-      if (client.connect("ESP8266", "rafael", "senha")) 
+      if (client.connect("ESP8266", "cepedi_pos", "cepedi123")) 
       {
         Serial.println("connected");     // Se a conexão for bem-sucedida
       } 
