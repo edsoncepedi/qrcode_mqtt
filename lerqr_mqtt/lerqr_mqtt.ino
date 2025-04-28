@@ -1,13 +1,4 @@
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 01 ESP32 Cam QR Code Scanner
-/*
- * Reference :
- * - ESP32-CAM QR Code Reader (off-line) : https://www.youtube.com/watch?v=ULZL37YqJc8
- * - ESP32QRCodeReader_Page : https://github.com/fustyles/Arduino/tree/master/ESP32-CAM_QRCode_Recognition/ESP32QRCodeReader_Page
- * 
- * The source of the "quirc" library I shared on this project: https://github.com/fustyles/Arduino/tree/master/ESP32-CAM_QRCode_Recognition/ESP32QRCodeReader_Page
- */
-
-/* ======================================== Including the libraries. */
+/* ======================================== Inclusão de Bibliotecas */
 #include "esp_camera.h"
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
@@ -27,7 +18,7 @@ TaskHandle_t QRCodeReader_Task;
 TaskHandle_t reconnect_Task; 
 TaskHandle_t envio_Task; 
 TaskHandle_t flash_Task;
-/* ======================================== GPIO of camera model Al Thinker ESP32-CAM */
+/* ======================================== Configuração de GPIOs da câmera Thinker ESP32-CAM */
 
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
@@ -47,14 +38,14 @@ TaskHandle_t flash_Task;
 #define PCLK_GPIO_NUM     22
 
 
-/* ======================================== */ // Definindo Pinos do LED do flash e do Buzzer
-#define LED_OnBoard 4
-#define LED_err 12
-#define Buzzer 14
-#define SDA_PIN 15 // SDA Connected to GPIO 15
-#define SCL_PIN 13 // SCL Connected to GPIO 13
+/* ======================================== */ // Definindo diretivas dos pinos
+#define LED_OnBoard 4 // Flash conectado internamente ao GPIO 4
+#define LED_err 12    // Led azul conectado ao GPIO 12
+#define Buzzer 14     // Buzzer conectado ao GPIO 14
+#define SDA_PIN 15    // SDA conectado ao GPIO 15
+#define SCL_PIN 13    // SCL conectado ao GPIO 13
 
-/* ======================================== Replace with your network credentials */
+/* ======================================== SSID e Senha da Wifi */
 const char* ssid = "Automacao";
 const char* password = "127.0.0.1...";
 /* ======================================== */
@@ -69,7 +60,7 @@ char msg[50];  // Buffer para armazenar a mensagem
 char msg_ant[50];// Buffer para mensagem anterior
 /* ======================================== */
 
-/* ======================================== Variables declaration */
+/* ======================================== Declaração de variáveis globais */
 struct QRCodeData
 {
   bool valid;
@@ -91,21 +82,21 @@ struct QRCodeData qrCodeData;
 // VL53L0X (Using I2C) - SENSOR
 Adafruit_VL53L0X lox = Adafruit_VL53L0X();
 bool estadoanterior;
-/* ________________________________________________________________________________ VOID SETTUP() */
+/* ________________________________________________________________________________ VOID SETUP() */
 void setup() {
-  // put your setup code here, to run once:
+  // Modos de operação dos GPIOs:
   pinMode(LED_OnBoard, OUTPUT);
   pinMode(Buzzer, OUTPUT);
   pinMode(LED_err, OUTPUT);
   digitalWrite(LED_err, LOW);
 
-  Wire.begin(SDA_PIN, SCL_PIN);
+  Wire.begin(SDA_PIN, SCL_PIN); // Ligação dos pinos I2C 
 
-  // Disable brownout detector.
+  // Desativar detector de queda de energia.
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
  
 
-  /* ---------------------------------------- Init serial communication speed (baud rate). */
+  /* ---------------------------------------- Definição da comunicação serial */
   Serial.begin(115200);
   Serial.setDebugOutput(true);
   Serial.println();
@@ -113,9 +104,10 @@ void setup() {
 
   /* ---------------------------------------- */
   client.setServer(mqtt_server, 1883);   // Configura o broker MQTT (porta 1883)
-  //client.setCallback(callback);           // Define a função de callback para tratar mensagens recebidas
+  //client.setCallback(callback);           // Define a função de callback para tratar mensagens recebidas 
+
   /* ---------------------------------------- Camera configuration. */
-  Serial.println("Start configuring and initializing the camera...");
+  Serial.println("Iniciando configuração da camera...");
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
@@ -141,22 +133,24 @@ void setup() {
   config.jpeg_quality = 15;
   config.fb_count = 1;
 
-  esp_err_t err = esp_camera_init(&config);
+  esp_err_t err = esp_camera_init(&config);  // Inicializa o objeto da câmera e o paramêtro err recebe o status de erro caso ocorra um problema na inicialização
+
+  //Se houver um problema durante a inicialização informa a mensagem e reinicia o ESP.
   if (err != ESP_OK) {
-    Serial.printf("Camera init failed with error 0x%x", err);
+    Serial.printf("Erro na inicialização da câmera 0x%x", err); 
     ESP.restart();
   }
   
   sensor_t * s = esp_camera_sensor_get();
   s->set_framesize(s, FRAMESIZE_QVGA);
   
-  Serial.println("Configure and initialize the camera successfully.");
+  Serial.println("Camera configurada com sucesso.");
   Serial.println();
   /* ---------------------------------------- */
-  /* ---------------------------------------- Connect to Wi-Fi. */
+  /* ---------------------------------------- Conectando à Wifi. */
   WiFi.mode(WIFI_STA);
   Serial.println("------------");
-  Serial.print("Connecting to ");
+  Serial.print("Conectando-se a ");
   Serial.println(ssid);
   WiFi.begin(ssid, password);
   
@@ -164,12 +158,14 @@ void setup() {
   connecting_process_timed_out = connecting_process_timed_out * 2;
 
   while (WiFi.status() != WL_CONNECTED) {
+    //Flash pisca até que a Wifi esteja conectada
     Serial.print(".");
     digitalWrite(LED_OnBoard, HIGH);
     vTaskDelay(250);
     digitalWrite(LED_OnBoard, LOW);
     vTaskDelay(250);
     if(connecting_process_timed_out > 0) connecting_process_timed_out--;
+    // Se o tempo de timeout for superado sem conexão o Esp será reiniciado
     if(connecting_process_timed_out == 0) {
       vTaskDelay(1000);
       ESP.restart();
@@ -177,75 +173,80 @@ void setup() {
   }
 
   /* ---------------------------------------- Inicializa a comunicação I2C do Sensor*/
-  Serial.println("Adafruit VL53L0X test");
+  Serial.println("Adafruit VL53L0X Testando...");
   if (!lox.begin()) {
-    Serial.println(F("Failed to boot VL53L0X"));
+    Serial.println(F("Falha ao iniciar o VL53L0X"));
     while (1)
       ;
   }
-  Serial.println(F("VL53L0X API Simple Ranging example\n\n"));
-  /* ---------------------------------------- create "QRCodeReader_Task" using the xTaskCreatePinnedToCore() function */
-  xTaskCreatePinnedToCore(
-             QRCodeReader,          /* Task function. */
-             "QRCodeReader_Task",   /* name of task. */
-             10000,                 /* Stack size of task */
-             NULL,                  /* parameter of the task */
-             5,                     /* priority of the task */
-             &QRCodeReader_Task,    /* Task handle to keep track of created task */
-             0);                    /* pin task to core 0 */
-  /* ---------------------------------------- */
-  xTaskCreatePinnedToCore(
-             reconnect_mqtt,          /* Task function. */
-             "reconnect_mqtt",   /* name of task. */
-             2048,                 /* Stack size of task */
-             NULL,                  /* parameter of the task */
-             2,                     /* priority of the task */
-             &reconnect_Task,    /* Task handle to keep track of created task */
-             1);                    /* pin task to core 1 */
-  /* ---------------------------------------- */
-    /* ---------------------------------------- */
 
+  /* ---------------------------------------- Criando a task "QRCodeReader_Task" usando o a função xTaskCreatePinnedToCore() */
+  // Essa task é responsável pela leitura em tempo de execução dos códigos QR
   xTaskCreatePinnedToCore(
-             Flash,          /* Task function. */
-             "Flash",   /* name of task. */
-             2048,                 /* Stack size of task */
-             NULL,                  /* parameter of the task */
-             2,                     /* priority of the task */
-             &flash_Task,    /* Task handle to keep track of created task */
-             0);                    /* pin task to core 1 */
+             QRCodeReader,          /* Função da Task. */
+             "QRCodeReader_Task",   /* Nome da Task. */
+             10000,                 /* Memória destinada a Task */
+             NULL,                  /* Parâmetro para Task */
+             5,                     /* Nível de prioridade da Task */
+             &QRCodeReader_Task,    /* Handle da Task */
+             0);                    /* Núcleo onde a task é executada 0 ou 1 */
+  /* ---------------------------------------- */
+
+  /* ---------------------------------------- Criando a task "reconnect_Task" usando o a função xTaskCreatePinnedToCore() */
+  // Essa task é responsável pela reconecção ao Broker MQTT em caso de problemas
+  xTaskCreatePinnedToCore(
+             reconnect_mqtt,     /* Função da Task. */
+             "reconnect_mqtt",   /* Nome da Task. */
+             2048,               /* Memória destinada a Task */
+             NULL,               /* Parâmetro para Task */
+             2,                  /* Nível de prioridade da Task */
+             &reconnect_Task,    /* Handle da Task */
+             1);                 /* Núcleo onde a task é executada 0 ou 1 */
+  /* ---------------------------------------- */
+
+  /* ---------------------------------------- */
+  /* ---------------------------------------- Criando a task "flash_Task" usando o a função xTaskCreatePinnedToCore() */
+  // Essa task é responsável por ligar o Flash quando o sensor detecta um objeto proximo.
+  xTaskCreatePinnedToCore(
+             Flash,          /* Função da Task. */
+             "Flash",        /* Nome da Task. */
+             2048,           /* Memória destinada a Task */
+             NULL,           /* Parâmetro para Task */
+             2,              /* Nível de prioridade da Task */
+             &flash_Task,    /* Handle da Task */
+             0);             /* Núcleo onde a task é executada 0 ou 1 */
   /* ---------------------------------------- */ 
 
 }
 
 /* ________________________________________________________________________________ */
 void loop() {
-  // put your main code here, to run repeatedly:
+  // Delay para que não ocorram problemas com o watchdog timer
   vTaskDelay(10);
 }
 /* ________________________________________________________________________________ */
 
-/* ________________________________________________________________________________ The function to be executed by "QRCodeReader_Task" */
-// This function is to instruct the camera to take or capture a QR Code image, then it is processed and translated into text.
+/* ________________________________________________________________________________ Função executada na task de leitura de QRcode */
 void QRCodeReader( void * pvParameters ){
   /* ---------------------------------------- */
-  Serial.println("QRCodeReader is ready.");
-  Serial.print("QRCodeReader running on core ");
+  Serial.println("QRCodeReader está pronta");
+  Serial.print("QRCodeReader executando no core ");
   Serial.println(xPortGetCoreID());
   Serial.println();
   /* ---------------------------------------- */
 
-  /* ---------------------------------------- Loop to read QR Code in real time. */
+  /* ---------------------------------------- Loop da leitura em tempo real */
   while(1){
       q = quirc_new();
       if (q == NULL){
-        Serial.print("can't create quirc object\r\n");  
+        Serial.print("Erro ao criar o objeto quirc \r\n");  
         continue;
       }
     
       fb = esp_camera_fb_get();
       if (!fb)
       {
-        Serial.println("Camera capture failed");
+        Serial.println("Captura da Camera falhou");
         continue;
       }   
       
@@ -260,11 +261,9 @@ void QRCodeReader( void * pvParameters ){
         err = quirc_decode(&code, &data);
     
         if (err){
-          Serial.println("Decoding FAILED");
-          //digitalWrite(LED_OnBoard, HIGH);
+          Serial.println("Erro na decodificação");
         } else {
-          Serial.printf("Decoding successful:\n");
-          //digitalWrite(LED_OnBoard, LOW);
+          Serial.printf("A decodificação foi um sucesso:\n");
           dumpData(&data);
         } 
         Serial.println();
@@ -297,7 +296,7 @@ void callback(char* topic, byte* message, unsigned int length) {
 }
 */
 
-/* ________________________________________________________________________________ Function to display the results of reading the QR Code on the serial monitor. */
+/* ________________________________________________________________________________ Função para exibir os resultados no Monitor e também inicializa a Task de envio MQTT*/
 void dumpData(const struct quirc_data *data)
 {
   Serial.printf("Version: %d\n", data->version);
@@ -307,19 +306,19 @@ void dumpData(const struct quirc_data *data)
   Serial.printf("Payload: %s\n", data->payload);
   
   sprintf(msg, "%s", data->payload);
-
+  // A task só inicializa caso a nova mensagem seja diferente da mensagem anterior. A mesma mensagem não será enviada mais de uma vez, para que não ocorram dados duplicados.
   if(memcmp(msg, msg_ant, sizeof(msg)) != 0){
     //Sinal luminoso e sonoro
     sinal_envio();
     //Cria task de envio
     xTaskCreatePinnedToCore(
-            enviar_mensagem_mqtt,          /* Task function. */
-            "enviar_mensagem_mqtt",   /* name of task. */
-            10000,                 /* Stack size of task */
-            msg,                  /* parameter of the task */
-            1,                     /* priority of the task */
-            &envio_Task,    /* Task handle to keep track of created task */
-            1);                    /* pin task to core 1 */
+            enviar_mensagem_mqtt,     /* Função da Task. */
+            "enviar_mensagem_mqtt",   /* Nome da Task. */
+            10000,                    /* Memória destinada a Task */
+            msg,                      /* Parâmetro para Task */
+            1,                        /* Nível de prioridade da Task */
+            &envio_Task,              /* Handle da Task */
+            1);                       /* Núcleo onde a task é executada 0 ou 1 */
   }
 }
 /* ________________________________________________________________________________ */
@@ -349,7 +348,7 @@ void reconnect_mqtt ( void * pvParameters ) {
     vTaskDelay(10 / portTICK_PERIOD_MS);
   }
 }
-
+// Função criada para emitir sinal sonoro e luminoso ao enviar mensagem MQTT
 void sinal_envio(){
     digitalWrite(LED_err, HIGH);
     digitalWrite(Buzzer, HIGH);
@@ -359,13 +358,15 @@ void sinal_envio(){
     digitalWrite(LED_OnBoard, LOW);
 }
 
+// Função responsável por enviar mensagem MQTT após uma leitura
 void enviar_mensagem_mqtt(void * pvParameters){
     char *msg_rec = (char *) pvParameters;
-    if(client.connected())
+    // Se o cliente estiver conectado a mensagem será enviada, senão será enviada a menasgem de erro de conexão
+    if(client.connected()) 
     {
       Serial.println("Dados enviados");
       Serial.println(msg_rec);
-      client.publish("rastreio/esp32/camera1/localizacao",  msg_rec);
+      client.publish("rastreio/esp32/camera1/localizacao",  msg_rec); // Define o tópico no qual será enviada a mensagem
       //Copia para a variável o valor da nova mensagem para o buffer anterior para proxima comparação
       memcpy(msg_ant, msg, sizeof(msg));
     }
@@ -376,15 +377,16 @@ void enviar_mensagem_mqtt(void * pvParameters){
     vTaskDelete(NULL);
 }
 
+// Função Flash responsável por ligar o flash na presença de um objeto.
 void Flash ( void * pvParameters ) {
   // Tenta se reconectar até que a conexão seja bem-sucedida
   while(1){
     bool estado;
-    VL53L0X_RangingMeasurementData_t measure;
-    const int distancia = 250;
+    VL53L0X_RangingMeasurementData_t measure; // Dados do sensor Laser
+    const int distancia = 250; // Distância mínima para que o sistema ative o flash
     lox.rangingTest(&measure, false);
     estado = measure.RangeMilliMeter < distancia;
-    //lox.getRangingMeasurement(&measure, false);
+    // Lógica de borda de subida para ligar o flash, o flash só é desligado na precisa de um NOVO objeto.
     if (measure.RangeStatus != 4) {
       if (estado == 1 && estadoanterior == 0){
         digitalWrite(LED_OnBoard, HIGH);
