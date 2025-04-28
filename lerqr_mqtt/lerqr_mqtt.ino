@@ -331,8 +331,8 @@ void reconnect_mqtt ( void * pvParameters ) {
     while (!client.connected()) 
     {
       Serial.print("Attempting MQTT connection...");
-      // Tenta conectar com o ID "ESP8266Client"
-      if (client.connect("ESP8266", "cepedi_pos", "cepedi123")) 
+      // Tenta conectar com o ID "camera1", informação de usuário e senha para o broker mqtt
+      if (client.connect("camera1", "cepedi_pos", "cepedi123"))  
       {
         Serial.println("connected");     // Se a conexão for bem-sucedida
       } 
