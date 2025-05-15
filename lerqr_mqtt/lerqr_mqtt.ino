@@ -19,6 +19,7 @@ TaskHandle_t reconnect_Task;
 TaskHandle_t envio_Task; 
 TaskHandle_t monitoramento_Sensor_Task;
 TaskHandle_t monitoramento_Botao_Task;
+TaskHandle_t erro_na_linha_Task;
 //SemaphoreHandle_t xSemaphore;
 
 /* ======================================== Configuração de GPIOs da câmera Thinker ESP32-CAM */
@@ -331,7 +332,7 @@ void reconnect_mqtt ( void * pvParameters ) {
       // Tenta conectar com o ID "camera1", informação de usuário e senha para o broker mqtt
       if (client.connect("camera1", "cepedi_pos", "cepedi123"))  
       {
-        client.subscribe("rastreio/esp32/camera1/sistema");
+        client.subscribe("rastreio/esp32/posto_1/sistema");
         Serial.println("connected");     // Se a conexão for bem-sucedida
       } 
       else 
@@ -367,7 +368,7 @@ void enviar_mensagem_mqtt(void * pvParameters){
       Serial.print("Mensagem: ");
       Serial.println(msg_rec);
 
-      client.publish("rastreio/esp32/camera1/dispositivo", msg_rec); // Define o tópico no qual será enviada a mensagem
+      client.publish("rastreio/esp32/posto_1/dispositivo", msg_rec); // Define o tópico no qual será enviada a mensagem
     }
     else
     {
@@ -456,6 +457,23 @@ void monitoramento_Botao ( void * pvParameters ) {
   }
 }
 
+// FUNÇÃO PARA SINALIZAR ERRO NA LINHA
+void erro_na_linha(void * pvParameters){
+  while(1){
+    digitalWrite(Buzzer, HIGH);
+    vTaskDelay(50);
+    digitalWrite(Buzzer, LOW);
+    vTaskDelay(50);
+    digitalWrite(Buzzer, HIGH);
+    vTaskDelay(50);
+    digitalWrite(Buzzer, LOW);
+    vTaskDelay(50);
+    digitalWrite(Buzzer, HIGH);
+    vTaskDelay(50);
+    digitalWrite(Buzzer, LOW);
+    vTaskDelay(500);
+  }
+}
 //UTILIZADA APENAS PARA RECEBER MENSAGENS
 /* ________________________________________________________________________________ */
 // Função de callback que é chamada sempre que uma nova mensagem chega a um tópico inscrito
@@ -477,6 +495,20 @@ void callback(char* topic, byte* message, unsigned int length) {
     }
     Serial.println("Código inválido");
   }  
+  if(messageTemp == "iniciar_erro_1"){
+      xTaskCreatePinnedToCore(
+        erro_na_linha,     /* Função da Task. */
+        "erro_na_linha",   /* Nome da Task. */
+        2000,                    /* Memória destinada a Task */
+        NULL,                      /* Parâmetro para Task */
+        2,                        /* Nível de prioridade da Task */
+        &erro_na_linha_Task,              /* Handle da Task */
+        0);                       /* Núcleo onde a task é executada 0 ou 1 */
+  }
+  if(messageTemp == "parar_erro_1"){
+    digitalWrite(Buzzer, LOW);
+    vTaskDelete(erro_na_linha_Task);
+  }    
 }
 
 void realiza_leitura(){
