@@ -20,7 +20,6 @@ TaskHandle_t envio_Task;
 TaskHandle_t monitoramento_Sensor_Task;
 TaskHandle_t monitoramento_Botao_Task;
 TaskHandle_t erro_na_linha_Task;
-//SemaphoreHandle_t xSemaphore;
 
 /* ======================================== Configuração de GPIOs da câmera Thinker ESP32-CAM */
 
@@ -51,7 +50,10 @@ TaskHandle_t erro_na_linha_Task;
 #define SCL_PIN 13    // SCL conectado ao GPIO 13
 
 
-
+const int numero_posto = 3;
+char topico_dispositivo[36];
+char topico_sistema[32];
+char id_posto[7];
 
 bool estadoBotao = false;     // Estado atual do botão (ligado/desligado)
 bool ultimoEstadoBotao = LOW; // Último estado lido do botão
@@ -62,9 +64,8 @@ unsigned long ultimaLeitura2 = 0;
 const unsigned long debounceDelay = 50; // Tempo de debounce (em milissegundos)
 
 
-
 /* ======================================== SSID e Senha da Wifi */
-const char* ssid = "Automacao";
+const char* ssid = "UBQ-Automacao";
 const char* password = "127.0.0.1...";
 /* ======================================== */
 
@@ -101,7 +102,9 @@ bool estado;
 bool estadoanterior;
 /* ________________________________________________________________________________ VOID SETUP() */
 void setup() {
-  //xSemaphore = xSemaphoreCreateBinary();
+  snprintf(topico_dispositivo, sizeof(topico_dispositivo), "rastreio/esp32/posto_%d/dispositivo", numero_posto);
+  snprintf(topico_sistema, sizeof(topico_sistema), "rastreio/esp32/posto_%d/sistema", numero_posto);
+  snprintf(id_posto, sizeof(id_posto), "posto_%d", numero_posto);
   // Modos de operação dos GPIOs:
   pinMode(LED_OnBoard, OUTPUT);
   pinMode(Buzzer, OUTPUT);
@@ -112,6 +115,7 @@ void setup() {
   // Desativar detector de queda de energia.
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
  
+  //
 
   /* ---------------------------------------- Definição da comunicação serial */
   Serial.begin(115200);
@@ -330,9 +334,9 @@ void reconnect_mqtt ( void * pvParameters ) {
     {
       Serial.print("Attempting MQTT connection...");
       // Tenta conectar com o ID "camera1", informação de usuário e senha para o broker mqtt
-      if (client.connect("camera1", "cepedi_pos", "cepedi123"))  
+      if (client.connect("posto_2", "cepedi_pos", "cepedi123"))  
       {
-        client.subscribe("rastreio/esp32/posto_1/sistema");
+        client.subscribe(topico_sistema);
         Serial.println("connected");     // Se a conexão for bem-sucedida
       } 
       else 
@@ -364,11 +368,11 @@ void enviar_mensagem_mqtt(void * pvParameters){
     {
       Serial.println("Dados enviados");
       Serial.print("Tópico: ");
-      Serial.println("rastreio/esp32/camera1/dispositivo");
+      Serial.println(topico_dispositivo);
       Serial.print("Mensagem: ");
       Serial.println(msg_rec);
 
-      client.publish("rastreio/esp32/posto_1/dispositivo", msg_rec); // Define o tópico no qual será enviada a mensagem
+      client.publish(topico_dispositivo, msg_rec); // Define o tópico no qual será enviada a mensagem
     }
     else
     {
@@ -377,35 +381,49 @@ void enviar_mensagem_mqtt(void * pvParameters){
     vTaskDelete(NULL);
 }
 
-// Função Flash responsável por ligar o flash na presença de um objeto.
+// Variáveis de debounce
+bool estadoEstavel = false;             // Estado final confiável
+bool leituraAnterior = false;          // Última leitura do sensor
+unsigned long tempoUltimaLeitura = 0;  // Quando a mudança começou
+const int tempoDebounce = 100;         // Tempo mínimo (ms) para validar mudança
+
 void monitoramento_Sensor ( void * pvParameters ) {
   while(1){
-    VL53L0X_RangingMeasurementData_t measure; // Dados do sensor Laser
-    const int distancia = 250; // Distância mínima para que o sistema ative o flash
+    VL53L0X_RangingMeasurementData_t measure;
+    const int distancia = 300;
     lox.rangingTest(&measure, false);
-    estado = measure.RangeMilliMeter < distancia;
-    // Lógica de borda de subida para ligar o flash, o flash só é desligado na precisa de um NOVO objeto.
-    //if (measure.RangeStatus != 4) {
-      if (estado == 1 && estadoanterior == 0){ // Borda de Subida
-        Serial.println("BS");
-        realiza_leitura();
-        envia_dispositivo("BS");
+    bool leituraAtual = measure.RangeMilliMeter < distancia;
+
+    // Se a leitura mudou em relação à anterior
+    if (leituraAtual != leituraAnterior) {
+      leituraAnterior = leituraAtual;
+      tempoUltimaLeitura = millis();  // Marca o tempo da mudança
+    }
+
+    // Se o tempo de estabilidade foi atingido
+    if ((millis() - tempoUltimaLeitura) > tempoDebounce) {
+      // E se o estado ainda não foi atualizado
+      if (leituraAtual != estadoEstavel) {
+        // Aqui temos uma mudança de borda real, com debounce
+        bool estadoAnterior = estadoEstavel;
+        estadoEstavel = leituraAtual;
+
+        if (estadoEstavel && !estadoAnterior) {
+          Serial.println("BS");
+          realiza_leitura();
+          envia_dispositivo("BS");
+        } 
+        else if (!estadoEstavel && estadoAnterior) {
+          Serial.println("BD");
+          envia_dispositivo("BD");
+          para_leitura();
         }
-      
-      if (estado == 0 && estadoanterior == 1){ // Borda de Descida
-        Serial.println("BD");
-        envia_dispositivo("BD");
-        }
-     // } 
-    if (!estado){ //Sem objeto
-      para_leitura();
       }
-    
-    estadoanterior = estado;
-    vTaskDelay(10 / portTICK_PERIOD_MS);
+    }
+
+    vTaskDelay(10 / portTICK_PERIOD_MS); // 10 ms de intervalo
   }
 }
-
 
 void monitoramento_Botao ( void * pvParameters ) {
   while(1){
