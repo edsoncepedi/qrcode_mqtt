@@ -50,10 +50,10 @@ TaskHandle_t erro_na_linha_Task;
 #define SCL_PIN 13    // SCL conectado ao GPIO 13
 
 
-const int numero_posto = 3;
-char topico_dispositivo[36];
-char topico_sistema[32];
-char id_posto[7];
+const int numero_posto = 2;
+char topico_dispositivo[40];
+char topico_sistema[35];
+char id_posto[15];
 
 bool estadoBotao = false;     // Estado atual do botão (ligado/desligado)
 bool ultimoEstadoBotao = LOW; // Último estado lido do botão
@@ -76,6 +76,7 @@ void callback(char* topic, byte* message, unsigned int length);
 void envia_dispositivo(char* msg);
 void realiza_leitura();
 void para_leitura();
+void beep();
 
 WiFiClient espClient; // Cliente Wi-Fi para comunicação com o broker MQTT
 PubSubClient client(mqtt_server, 1883, callback, espClient); // Cliente MQTT usando o cliente Wi-Fi
@@ -216,7 +217,7 @@ void setup() {
   xTaskCreatePinnedToCore(
              reconnect_mqtt,     /* Função da Task. */
              "reconnect_mqtt",   /* Nome da Task. */
-             2048,               /* Memória destinada a Task */
+             4096,               /* Memória destinada a Task */
              NULL,               /* Parâmetro para Task */
              2,                  /* Nível de prioridade da Task */
              &reconnect_Task,    /* Handle da Task */
@@ -334,7 +335,7 @@ void reconnect_mqtt ( void * pvParameters ) {
     {
       Serial.print("Attempting MQTT connection...");
       // Tenta conectar com o ID "camera1", informação de usuário e senha para o broker mqtt
-      if (client.connect("posto_2", "cepedi_pos", "cepedi123"))  
+      if (client.connect(id_posto, id_posto, "cepedi123"))  
       {
         client.subscribe(topico_sistema);
         Serial.println("connected");     // Se a conexão for bem-sucedida
@@ -385,7 +386,13 @@ void enviar_mensagem_mqtt(void * pvParameters){
 bool estadoEstavel = false;             // Estado final confiável
 bool leituraAnterior = false;          // Última leitura do sensor
 unsigned long tempoUltimaLeitura = 0;  // Quando a mudança começou
-const int tempoDebounce = 100;         // Tempo mínimo (ms) para validar mudança
+const int tempoDebounce = 200;         // Tempo mínimo (ms) para validar mudança
+
+void beep(){
+    digitalWrite(Buzzer, HIGH);
+    vTaskDelay(50);
+    digitalWrite(Buzzer, LOW);
+}
 
 void monitoramento_Sensor ( void * pvParameters ) {
   while(1){
@@ -443,6 +450,7 @@ void monitoramento_Botao ( void * pvParameters ) {
         // Se o botão foi pressionado (nível LOW por causa do PULLUP)
         if (estadoBotao == LOW) {
           envia_dispositivo("BT1");
+          beep();
           Serial.println("BT1"); // Inverte o LED
         }
       }
@@ -465,6 +473,7 @@ void monitoramento_Botao ( void * pvParameters ) {
         // Se o botão foi pressionado (nível LOW por causa do PULLUP)
         if (estadoBotao2 == LOW) {
           envia_dispositivo("BT2");
+          beep();
           Serial.println("BT2"); // Inverte o LED
         }
       }
