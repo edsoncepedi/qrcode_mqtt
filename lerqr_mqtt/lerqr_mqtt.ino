@@ -11,6 +11,7 @@
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include "Adafruit_VL53L0X.h"
+#include <HTTPClient.h>
 /* ======================================== */
 
 // creating a task handle
@@ -50,10 +51,13 @@ TaskHandle_t erro_na_linha_Task;
 #define SCL_PIN 13    // SCL conectado ao GPIO 13
 
 
-const int numero_posto = 2;
+const int numero_posto = 1;
 char topico_dispositivo[40];
 char topico_sistema[35];
+char topico_ip[35];
+char topico_mac[35];
 char id_posto[15];
+const char* serverUrl = "http://172.16.10.175:8000/rastreadores/upload"; // servidor Flask
 
 bool estadoBotao = false;     // Estado atual do botão (ligado/desligado)
 bool ultimoEstadoBotao = LOW; // Último estado lido do botão
@@ -65,8 +69,8 @@ const unsigned long debounceDelay = 50; // Tempo de debounce (em milissegundos)
 
 
 /* ======================================== SSID e Senha da Wifi */
-const char* ssid = "UBQ-Automacao";
-const char* password = "127.0.0.1...";
+const char* ssid = "gemeodigital";
+const char* password = "gd@2025p";
 /* ======================================== */
 
 /*======================================== Definição do endereço IP do servidor MQTT*/
@@ -101,10 +105,13 @@ struct QRCodeData
 Adafruit_VL53L0X lox = Adafruit_VL53L0X();
 bool estado;
 bool estadoanterior;
+
 /* ________________________________________________________________________________ VOID SETUP() */
 void setup() {
   snprintf(topico_dispositivo, sizeof(topico_dispositivo), "rastreio/esp32/posto_%d/dispositivo", numero_posto);
   snprintf(topico_sistema, sizeof(topico_sistema), "rastreio/esp32/posto_%d/sistema", numero_posto);
+  snprintf(topico_ip, sizeof(topico_ip), "rastreio/esp32/posto_%d/ip", numero_posto);
+  snprintf(topico_mac, sizeof(topico_mac), "rastreio/esp32/posto_%d/mac", numero_posto);
   snprintf(id_posto, sizeof(id_posto), "posto_%d", numero_posto);
   // Modos de operação dos GPIOs:
   pinMode(LED_OnBoard, OUTPUT);
@@ -150,19 +157,18 @@ void setup() {
   config.xclk_freq_hz = 10000000;
   config.pixel_format = PIXFORMAT_GRAYSCALE;
   config.frame_size = FRAMESIZE_QVGA;
-  config.jpeg_quality = 15;
+  config.jpeg_quality = 10;
   config.fb_count = 1;
   config.fb_location = CAMERA_FB_IN_PSRAM;
 
   esp_err_t err = esp_camera_init(&config);  // Inicializa o objeto da câmera e o paramêtro err recebe o status de erro caso ocorra um problema na inicialização
-
+  sensor_t * s = esp_camera_sensor_get();
   //Se houver um problema durante a inicialização informa a mensagem e reinicia o ESP.
   if (err != ESP_OK) {
     Serial.printf("Erro na inicialização da câmera 0x%x", err); 
     ESP.restart();
   }
   
-  sensor_t * s = esp_camera_sensor_get();
   s->set_framesize(s, FRAMESIZE_QVGA);
   
   Serial.println("Camera configurada com sucesso.");
@@ -242,19 +248,52 @@ void setup() {
   xTaskCreatePinnedToCore(
              monitoramento_Botao,          /* Função da Task. */
              "monitoramento_Botao",        /* Nome da Task. */
-             4096,           /* Memória destinada a Task */
+             2048,           /* Memória destinada a Task */
              NULL,           /* Parâmetro para Task */
              3,              /* Nível de prioridade da Task */
              &monitoramento_Botao_Task,    /* Handle da Task */
              0);             /* Núcleo onde a task é executada 0 ou 1 */
   /* ---------------------------------------- */ 
+  vTaskDelay(1000 / portTICK_PERIOD_MS );
+  Serial.println("");
+  enviar_informacoes_importantes();
+
 }
 
 /* ________________________________________________________________________________ */
 void loop() {
-  vTaskDelay(10);
+  vTaskDelay(50 / portTICK_PERIOD_MS );
 }
 /* ________________________________________________________________________________ */
+
+void enviar_informacoes_importantes(){
+  bool informacoes = 1;
+  while(informacoes){
+    if(client.connected()) 
+      {
+        Serial.println("Informações Importantes: ");
+        String ip = WiFi.localIP().toString();
+        String mac = WiFi.macAddress();
+        Serial.print("Tópico: ");
+        Serial.println(topico_ip);
+        Serial.print("Mensagem: ");
+        Serial.println(ip);
+        Serial.print("Tópico: ");
+        Serial.println(topico_mac);
+        Serial.print("Mensagem: ");
+        Serial.println(mac);
+
+        client.publish(topico_ip, ip.c_str());
+        client.publish(topico_mac, mac.c_str());
+        informacoes = 0;
+      }
+      else
+      {
+        vTaskDelay(1000 / portTICK_PERIOD_MS );
+        Serial.println("Erro conexão");
+    }
+    }
+}
 
 /* ________________________________________________________________________________ Função executada na task de leitura de QRcode */
 void QRCodeReader( void * pvParameters ){
@@ -294,11 +333,25 @@ void QRCodeReader( void * pvParameters ){
     
         if (err){
           Serial.println("Erro na decodificação");
+
+          HTTPClient http;
+          String deviceID = String(id_posto);
+          http.begin(serverUrl);
+          http.addHeader("Content-Type", "application/octet-stream");
+          http.addHeader("Device-ID", deviceID); 
+
+          int httpResponseCode = http.POST(fb->buf, fb->len);
+          Serial.printf("POST -> %d\n", httpResponseCode);
+
+          http.end();
+          if(httpResponseCode == 200){
+            sinal_envio();
+            para_leitura();
+          }
+
         } else {
           Serial.printf("A decodificação foi um sucesso\n");
           dumpData(&data);
-          //xSemaphoreTake(xSemaphore, portMAX_DELAY);
-          //xSemaphoreTake(xSemaphore, portMAX_DELAY);
         } 
         Serial.println();
       } 
@@ -307,6 +360,7 @@ void QRCodeReader( void * pvParameters ){
       fb = NULL;
       image = NULL;  
       quirc_destroy(q);
+
     }
     
   /* ---------------------------------------- */
@@ -335,7 +389,7 @@ void reconnect_mqtt ( void * pvParameters ) {
     {
       Serial.print("Attempting MQTT connection...");
       // Tenta conectar com o ID "camera1", informação de usuário e senha para o broker mqtt
-      if (client.connect(id_posto, id_posto, "cepedi123"))  
+      if (client.connect(id_posto, id_posto, "cepedi123"))
       {
         client.subscribe(topico_sistema);
         Serial.println("connected");     // Se a conexão for bem-sucedida
